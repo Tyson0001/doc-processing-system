@@ -23,7 +23,7 @@ def process_document(document_id):
             doc.status = "processing"
 
             db.commit()
-            db.refresh(doc)   # 🔥 important
+            db.refresh(doc)   
 
             print(f"Step {i+1}/5 completed")
 
@@ -35,4 +35,4 @@ def process_document(document_id):
         return {"status": "completed", "document_id": document_id}
 
     finally:
-        db.close()   # 🔥 VERY IMPORTANT
+        db.close()   
