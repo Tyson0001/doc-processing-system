@@ -8,5 +8,5 @@ class Document(Base):
     id = Column(Integer, primary_key=True, index=True)
     filename = Column(String, nullable=False)
     status = Column(String, default="uploaded")
-    progress = Column(Integer, default=0)   # 🔥 NEW
+    progress = Column(Integer, default=0)   
     created_at = Column(DateTime, default=datetime.utcnow)
