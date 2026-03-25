@@ -13,7 +13,7 @@ async def websocket_endpoint(websocket: WebSocket, doc_id: int):
 
     try:
         while True:
-            # 🔥 NEW DB session every time
+            
             db = SessionLocal()
 
             doc = db.query(Document).filter(Document.id == doc_id).first()
@@ -29,7 +29,7 @@ async def websocket_endpoint(websocket: WebSocket, doc_id: int):
                 if doc.status == "completed":
                     break
 
-            db.close()   # 🔥 close every loop
+            db.close()   # 
 
             await asyncio.sleep(1)
 
