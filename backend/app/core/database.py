@@ -4,7 +4,7 @@ import time
 
 DATABASE_URL = "postgresql://user:password@db:5432/documents_db"
 
-# Retry logic (VERY IMPORTANT)
+# Retry logic 
 for i in range(10):
     try:
         engine = create_engine(DATABASE_URL)
