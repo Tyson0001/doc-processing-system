@@ -7,7 +7,7 @@ from app.api.ws import router as ws_router
 
 app = FastAPI()
 
-# 🔥 CORS FIX (CRITICAL)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],   # allow frontend
