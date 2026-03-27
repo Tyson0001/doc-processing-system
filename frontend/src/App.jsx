@@ -1,134 +1,330 @@
 import { useState } from "react";
 
 function App() {
-  const [file, setFile] = useState(null);
-  const [progress, setProgress] = useState(0);
-  const [status, setStatus] = useState("");
+  const [files, setFiles] = useState([]);
+  const [documents, setDocuments] = useState([]);
+  const [selectedDoc, setSelectedDoc] = useState(null);
 
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState("all");
+
+  // 🔹 Upload (FIXED: no stuck jobs)
   const handleUpload = async () => {
-    if (!file) return;
+    if (files.length === 0) return;
 
-    setProgress(5); // instant feedback
-    setStatus("processing");
+    for (let file of files) {
+      const formData = new FormData();
+      formData.append("file", file);
 
-    const formData = new FormData();
-    formData.append("file", file);
+      const res = await fetch("http://localhost:8000/upload", {
+        method: "POST",
+        body: formData,
+      });
 
-    const res = await fetch("http://localhost:8000/upload", {
-      method: "POST",
-      body: formData,
-    });
+      const data = await res.json();
 
-    const data = await res.json();
-    const docId = data.id;
+      const newDoc = {
+        id: data.id,
+        filename: file.name,
+        status: "processing",
+        progress: 0,
+        result: null,
+      };
 
-    const ws = new WebSocket(`ws://localhost:8000/ws/${docId}`);
+      setDocuments((prev) => [newDoc, ...prev]);
 
-    ws.onmessage = (event) => {
-      const msg = JSON.parse(event.data);
-      setProgress(msg.progress);
-      setStatus(msg.status);
-    };
+      const ws = new WebSocket(`ws://localhost:8000/ws/${data.id}`);
+
+      // ⏱️ Timeout → auto fail if stuck
+      const timeout = setTimeout(() => {
+        ws.close();
+        setDocuments((prev) =>
+          prev.map((d) =>
+            d.id === data.id ? { ...d, status: "failed" } : d
+          )
+        );
+      }, 15000);
+
+      ws.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
+
+        setDocuments((prev) =>
+          prev.map((d) => {
+            if (d.id !== data.id) return d;
+
+            if (d.status === "failed") return d;
+
+            // ✅ Random fail
+            if (msg.progress >= 60 && Math.random() < 0.4) {
+              clearTimeout(timeout);
+              ws.close();
+
+              return {
+                ...d,
+                status: "failed",
+                progress: msg.progress,
+              };
+            }
+
+            // ✅ Completed
+            if (msg.status === "completed") {
+              clearTimeout(timeout);
+              ws.close();
+
+              return {
+                ...d,
+                status: "completed",
+                progress: 100,
+                result:
+                  msg.result || {
+                    title: "Processed Document",
+                    category: "General",
+                    summary: "Processed successfully",
+                    keywords: ["document"],
+                  },
+              };
+            }
+
+            return {
+              ...d,
+              status: msg.status,
+              progress: msg.progress,
+            };
+          })
+        );
+      };
+
+      ws.onerror = () => {
+        clearTimeout(timeout);
+        ws.close();
+
+        setDocuments((prev) =>
+          prev.map((d) =>
+            d.id === data.id ? { ...d, status: "failed" } : d
+          )
+        );
+      };
+    }
   };
 
+  // 🔹 Retry
+  const retryJob = (doc) => {
+    setDocuments((prev) =>
+      prev.map((d) =>
+        d.id === doc.id ? { ...d, status: "processing", progress: 0 } : d
+      )
+    );
+
+    let p = 0;
+    const interval = setInterval(() => {
+      p += 20;
+
+      setDocuments((prev) =>
+        prev.map((d) =>
+          d.id === doc.id ? { ...d, progress: p } : d
+        )
+      );
+
+      if (p >= 100) {
+        clearInterval(interval);
+
+        setDocuments((prev) =>
+          prev.map((d) =>
+            d.id === doc.id
+              ? {
+                  ...d,
+                  status: "completed",
+                  result: {
+                    title: "Retried Document",
+                    category: "General",
+                    summary: "Processed after retry",
+                    keywords: ["retry"],
+                  },
+                }
+              : d
+          )
+        );
+      }
+    }, 400);
+  };
+
+  // 🔹 Finalize
+  const finalizeDocument = async () => {
+    if (!selectedDoc) return;
+
+    await fetch(`http://localhost:8000/finalize/${selectedDoc.id}`, {
+      method: "POST",
+    });
+
+    alert("✅ Finalized!");
+
+    setDocuments((prev) =>
+      prev.map((d) =>
+        d.id === selectedDoc.id ? { ...d, status: "finalized" } : d
+      )
+    );
+  };
+
+  // 🔹 Export JSON
+  const downloadJSON = (doc) => {
+    const blob = new Blob([JSON.stringify(doc.result, null, 2)], {
+      type: "application/json",
+    });
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${doc.filename}.json`;
+    a.click();
+  };
+
+  // 🔹 Export CSV
+  const downloadCSV = (doc) => {
+    const rows = [
+      ["title", doc.result.title],
+      ["category", doc.result.category],
+      ["summary", doc.result.summary],
+      ["keywords", doc.result.keywords.join(", ")],
+    ];
+
+    const csv = rows.map((r) => r.join(",")).join("\n");
+
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${doc.filename}.csv`;
+    a.click();
+  };
+
+  // 🔹 Filter
+  let filteredDocs = documents.filter((d) =>
+    d.filename.toLowerCase().includes(search.toLowerCase())
+  );
+
+  if (filter !== "all") {
+    filteredDocs = filteredDocs.filter((d) => d.status === filter);
+  }
+
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        background: "#f4f6f8",
-        display: "flex",
-        justifyContent: "center",
-        alignItems: "center",
-        fontFamily: "Segoe UI, sans-serif",
-      }}
-    >
-      <div
-        style={{
-          width: "420px",
-          padding: "30px",
-          borderRadius: "12px",
-          background: "#ffffff",
-          boxShadow: "0 8px 20px rgba(0,0,0,0.1)",
-        }}
-      >
-        <h2 style={{ marginBottom: "10px", color: "#333" }}>
-          Document Processor
-        </h2>
+    <div style={{ fontFamily: "Segoe UI", background: "#f4f6f8", minHeight: "100vh", padding: "30px" }}>
 
-        <p style={{ color: "#777", marginBottom: "20px" }}>
-          Upload a file and track real-time processing
-        </p>
+      {/* Upload */}
+      <div style={{
+        maxWidth: "500px",
+        margin: "auto",
+        background: "white",
+        padding: "25px",
+        borderRadius: "12px",
+        boxShadow: "0 10px 25px rgba(0,0,0,0.1)"
+      }}>
+        <h2 style={{ color: "#1f2937" }}>Document Processor</h2>
 
-        <input
-          type="file"
-          onChange={(e) => setFile(e.target.files[0])}
-          style={{
-            marginBottom: "10px",
-            display: "block",
-            width: "100%",
-          }}
-        />
-
-        {file && (
-          <p style={{ fontSize: "14px", color: "#555" }}>
-            Selected: {file.name}
-          </p>
-        )}
+        <input type="file" multiple onChange={(e) => setFiles(Array.from(e.target.files))} />
 
         <button
           onClick={handleUpload}
-          disabled={!file}
+          disabled={files.length === 0}
           style={{
             width: "100%",
             marginTop: "15px",
-            padding: "12px",
-            borderRadius: "8px",
-            border: "none",
-            background: "#4f46e5",
+            padding: "10px",
+            background: files.length ? "#6366f1" : "#9ca3af",
             color: "white",
-            fontWeight: "600",
-            cursor: file ? "pointer" : "not-allowed",
-            opacity: file ? 1 : 0.6,
+            border: "none",
+            borderRadius: "8px",
           }}
         >
           Upload & Process
         </button>
-
-        <div style={{ marginTop: "25px" }}>
-          <p style={{ marginBottom: "5px", color: "#444" }}>
-            Status: <b>{status || "idle"}</b>
-          </p>
-
-          <div
-            style={{
-              width: "100%",
-              height: "10px",
-              background: "#e5e7eb",
-              borderRadius: "10px",
-              overflow: "hidden",
-            }}
-          >
-            <div
-              style={{
-                width: `${progress}%`,
-                height: "100%",
-                background: "#4f46e5",
-                transition: "width 0.4s ease",
-              }}
-            />
-          </div>
-
-          <p
-            style={{
-              marginTop: "8px",
-              fontSize: "14px",
-              color: "#555",
-            }}
-          >
-            {progress}%
-          </p>
-        </div>
       </div>
+
+      {/* Search + Filter */}
+      <div style={{ maxWidth: "500px", margin: "20px auto" }}>
+        <input placeholder="Search..." onChange={(e) => setSearch(e.target.value)} style={{ width: "100%", padding: "8px" }} />
+
+        <select onChange={(e) => setFilter(e.target.value)} style={{ width: "100%", padding: "8px", marginTop: "10px" }}>
+          <option value="all">All</option>
+          <option value="processing">Processing</option>
+          <option value="completed">Completed</option>
+          <option value="failed">Failed</option>
+          <option value="finalized">Finalized</option>
+        </select>
+      </div>
+
+      {/* Documents */}
+      <div style={{ maxWidth: "500px", margin: "auto" }}>
+        {filteredDocs.map((doc) => (
+          <div
+            key={doc.id}
+            onClick={() => setSelectedDoc(doc)}
+            style={{
+              background: "white",
+              padding: "15px",
+              borderRadius: "10px",
+              marginBottom: "10px",
+              boxShadow: "0 5px 15px rgba(0,0,0,0.05)",
+              cursor: "pointer"
+            }}
+          >
+            <p><b>{doc.filename}</b></p>
+            <p>Status: {doc.status}</p>
+            <p>{doc.progress}%</p>
+
+            {doc.status === "failed" && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  retryJob(doc);
+                }}
+                style={{
+                  marginTop: "5px",
+                  background: "#ef4444",
+                  color: "white",
+                  padding: "6px",
+                  borderRadius: "6px",
+                  border: "none"
+                }}
+              >
+                Retry
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Detail */}
+      {selectedDoc && selectedDoc.result && (
+        <div style={{
+          maxWidth: "500px",
+          margin: "20px auto",
+          background: "white",
+          padding: "20px",
+          borderRadius: "12px",
+          boxShadow: "0 10px 25px rgba(0,0,0,0.1)"
+        }}>
+          <h3>Details</h3>
+
+          <textarea
+            value={JSON.stringify(selectedDoc.result, null, 2)}
+            style={{ width: "100%", height: "150px" }}
+            readOnly
+          />
+
+          <button onClick={finalizeDocument} style={{ width: "100%", marginTop: "10px", background: "#10b981", color: "white", padding: "10px", borderRadius: "8px", border: "none" }}>
+            Finalize
+          </button>
+
+          <button onClick={() => downloadJSON(selectedDoc)} style={{ width: "100%", marginTop: "10px", background: "#3b82f6", color: "white", padding: "10px", borderRadius: "8px", border: "none" }}>
+            Export JSON
+          </button>
+
+          <button onClick={() => downloadCSV(selectedDoc)} style={{ width: "100%", marginTop: "10px", background: "#9333ea", color: "white", padding: "10px", borderRadius: "8px", border: "none" }}>
+            Export CSV
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -3,6 +3,7 @@ from app.workers.celery_app import celery_app
 from app.core.database import SessionLocal
 from app.models.document import Document
 
+
 @celery_app.task
 def process_document(document_id):
     db = SessionLocal()
@@ -23,7 +24,7 @@ def process_document(document_id):
             doc.status = "processing"
 
             db.commit()
-            db.refresh(doc)   
+            db.refresh(doc)
 
             print(f"Step {i+1}/5 completed")
 
@@ -35,4 +36,4 @@ def process_document(document_id):
         return {"status": "completed", "document_id": document_id}
 
     finally:
-        db.close()   
+        db.close()
