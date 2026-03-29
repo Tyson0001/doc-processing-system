@@ -1,10 +1,6 @@
 import { useState } from "react";
 
-const API_URL =
-  window.location.hostname === "localhost"
-    ? "http://localhost:8000"
-    : "https://your-backend-url.onrender.com";
-
+const API_URL = import.meta.env.VITE_API_URL;
 function App() {
   const [files, setFiles] = useState([]);
   const [documents, setDocuments] = useState([]);
