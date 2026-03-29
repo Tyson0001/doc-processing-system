@@ -1,6 +1,9 @@
 import { useState } from "react";
 
-const API = import.meta.env.VITE_API_URL;
+const API_URL =
+  window.location.hostname === "localhost"
+    ? "http://localhost:8000"
+    : "https://your-backend-url.onrender.com";
 
 function App() {
   const [files, setFiles] = useState([]);
@@ -10,105 +13,69 @@ function App() {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
 
-  // 🔹 Upload
+  // Upload
   const handleUpload = async () => {
     if (files.length === 0) return;
+
+    setDocuments([]);
+    setSelectedDoc(null);
 
     for (let file of files) {
       const formData = new FormData();
       formData.append("file", file);
 
-      const res = await fetch(`${API}/upload`, {
+      const res = await fetch(`${API_URL}/upload`, {
         method: "POST",
         body: formData,
       });
 
       const data = await res.json();
+      const docId = data.id;
 
       const newDoc = {
-        id: data.id,
+        id: docId,
         filename: file.name,
-        status: "processing",
+        status: "queued",
         progress: 0,
         result: null,
       };
 
       setDocuments((prev) => [newDoc, ...prev]);
 
-      const ws = new WebSocket(
-        `${API.replace("https", "wss")}/ws/${data.id}`
-      );
+      // Polling
+      const interval = setInterval(async () => {
+        try {
+          const res = await fetch(`${API_URL}/status/${docId}`);
+          const msg = await res.json();
 
-      const timeout = setTimeout(() => {
-        ws.close();
-        setDocuments((prev) =>
-          prev.map((d) =>
-            d.id === data.id ? { ...d, status: "failed" } : d
-          )
-        );
-      }, 15000);
+          setDocuments((prev) =>
+            prev.map((d) => {
+              if (d.id !== docId) return d;
 
-      ws.onmessage = (event) => {
-        const msg = JSON.parse(event.data);
-
-        setDocuments((prev) =>
-          prev.map((d) => {
-            if (d.id !== data.id) return d;
-
-            if (d.status === "failed") return d;
-
-            if (msg.progress >= 60 && Math.random() < 0.4) {
-              clearTimeout(timeout);
-              ws.close();
-
-              return {
+              const updatedDoc = {
                 ...d,
-                status: "failed",
-                progress: msg.progress,
+                status: msg.status || d.status,
+                progress:
+                  typeof msg.progress === "number"
+                    ? msg.progress
+                    : d.progress,
+                result: msg.result || d.result,
               };
-            }
 
-            if (msg.status === "completed") {
-              clearTimeout(timeout);
-              ws.close();
+              if (msg.status === "completed" || msg.status === "failed") {
+                clearInterval(interval);
+              }
 
-              return {
-                ...d,
-                status: "completed",
-                progress: 100,
-                result:
-                  msg.result || {
-                    title: "Processed Document",
-                    category: "General",
-                    summary: "Processed successfully",
-                    keywords: ["document"],
-                  },
-              };
-            }
-
-            return {
-              ...d,
-              status: msg.status,
-              progress: msg.progress,
-            };
-          })
-        );
-      };
-
-      ws.onerror = () => {
-        clearTimeout(timeout);
-        ws.close();
-
-        setDocuments((prev) =>
-          prev.map((d) =>
-            d.id === data.id ? { ...d, status: "failed" } : d
-          )
-        );
-      };
+              return updatedDoc;
+            })
+          );
+        } catch (err) {
+          clearInterval(interval);
+        }
+      }, 1000);
     }
   };
 
-  // 🔹 Retry
   const retryJob = (doc) => {
     setDocuments((prev) =>
       prev.map((d) =>
@@ -149,11 +116,10 @@ function App() {
     }, 400);
   };
 
-  // 🔹 Finalize
   const finalizeDocument = async () => {
     if (!selectedDoc) return;
 
-    await fetch(`${API}/finalize/${selectedDoc.id}`, {
+    await fetch(`${API_URL}/finalize/${selectedDoc.id}`, {
       method: "POST",
     });
 
@@ -166,7 +132,6 @@ function App() {
     );
   };
 
-  // 🔹 Export JSON
   const downloadJSON = (doc) => {
     const blob = new Blob([JSON.stringify(doc.result, null, 2)], {
       type: "application/json",
@@ -179,13 +144,12 @@ function App() {
     a.click();
   };
 
-  // 🔹 Export CSV
   const downloadCSV = (doc) => {
     const rows = [
-      ["title", doc.result.title],
-      ["category", doc.result.category],
-      ["summary", doc.result.summary],
-      ["keywords", doc.result.keywords.join(", ")],
+      ["title", doc.result?.title],
+      ["category", doc.result?.category],
+      ["summary", doc.result?.summary],
+      ["keywords", doc.result?.keywords?.join(", ")],
     ];
 
     const csv = rows.map((r) => r.join(",")).join("\n");
@@ -199,7 +163,6 @@ function App() {
     a.click();
   };
 
-  // 🔹 Filter
   let filteredDocs = documents.filter((d) =>
     d.filename.toLowerCase().includes(search.toLowerCase())
   );
@@ -210,16 +173,21 @@ function App() {
 
   return (
     <div style={{ fontFamily: "Segoe UI", background: "#f4f6f8", minHeight: "100vh", padding: "30px" }}>
+      
       {/* Upload */}
-      <div style={{
-        maxWidth: "500px",
-        margin: "auto",
-        background: "white",
-        padding: "25px",
-        borderRadius: "12px",
-        boxShadow: "0 10px 25px rgba(0,0,0,0.1)"
-      }}>
-        <h2>Document Processor</h2>
+      <div
+        style={{
+          maxWidth: "500px",
+          margin: "auto",
+          background: "white",
+          padding: "25px",
+          borderRadius: "12px",
+          boxShadow: "0 10px 25px rgba(0,0,0,0.1)"
+        }}
+      >
+        <h2 style={{ color: "#111827", fontWeight: "600", marginBottom: "10px" }}>
+          Document Processor
+        </h2>
 
         <input type="file" multiple onChange={(e) => setFiles(Array.from(e.target.files))} />
 
@@ -242,9 +210,16 @@ function App() {
 
       {/* Search + Filter */}
       <div style={{ maxWidth: "500px", margin: "20px auto" }}>
-        <input placeholder="Search..." onChange={(e) => setSearch(e.target.value)} style={{ width: "100%", padding: "8px" }} />
+        <input
+          placeholder="Search..."
+          onChange={(e) => setSearch(e.target.value)}
+          style={{ width: "100%", padding: "8px" }}
+        />
 
-        <select onChange={(e) => setFilter(e.target.value)} style={{ width: "100%", padding: "8px", marginTop: "10px" }}>
+        <select
+          onChange={(e) => setFilter(e.target.value)}
+          style={{ width: "100%", padding: "8px", marginTop: "10px" }}
+        >
           <option value="all">All</option>
           <option value="processing">Processing</option>
           <option value="completed">Completed</option>
@@ -270,6 +245,18 @@ function App() {
           >
             <p><b>{doc.filename}</b></p>
             <p>Status: {doc.status}</p>
+
+            <div style={{ background: "#e5e7eb", height: "8px", borderRadius: "6px" }}>
+              <div
+                style={{
+                  width: `${doc.progress}%`,
+                  height: "8px",
+                  background: "#6366f1",
+                  borderRadius: "6px"
+                }}
+              />
+            </div>
+
             <p>{doc.progress}%</p>
 
             {doc.status === "failed" && (
@@ -295,7 +282,7 @@ function App() {
       </div>
 
       {/* Detail */}
-      {selectedDoc && selectedDoc.result && (
+      {selectedDoc && (
         <div style={{
           maxWidth: "500px",
           margin: "20px auto",
@@ -307,7 +294,7 @@ function App() {
           <h3>Details</h3>
 
           <textarea
-            value={JSON.stringify(selectedDoc.result, null, 2)}
+            value={JSON.stringify(selectedDoc.result || {}, null, 2)}
             style={{ width: "100%", height: "150px" }}
             readOnly
           />

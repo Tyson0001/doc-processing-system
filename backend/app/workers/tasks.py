@@ -14,23 +14,33 @@ def process_document(document_id):
         if not doc:
             return {"error": "Document not found"}
 
+        # ✅ FIX 1: Immediately update status
+        doc.status = "processing"
+        doc.progress = 0
+        db.commit()
+
         steps = 5
 
         for i in range(steps):
             time.sleep(1)
 
-            # update progress
+            # ✅ FIX 2: Update progress properly
             doc.progress = int(((i + 1) / steps) * 100)
-            doc.status = "processing"
-
             db.commit()
-            db.refresh(doc)
 
             print(f"Step {i+1}/5 completed")
 
-        # final update
+        # ✅ FINAL UPDATE
         doc.status = "completed"
         doc.progress = 100
+
+        doc.result = {
+            "title": doc.filename,
+            "category": "general",
+            "summary": "Processed successfully",
+            "keywords": ["document"]
+        }
+
         db.commit()
 
         return {"status": "completed", "document_id": document_id}
