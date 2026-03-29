@@ -1,5 +1,7 @@
 import { useState } from "react";
 
+const API = import.meta.env.VITE_API_URL;
+
 function App() {
   const [files, setFiles] = useState([]);
   const [documents, setDocuments] = useState([]);
@@ -8,7 +10,7 @@ function App() {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
 
-  // 🔹 Upload (FIXED: no stuck jobs)
+  // 🔹 Upload
   const handleUpload = async () => {
     if (files.length === 0) return;
 
@@ -16,7 +18,7 @@ function App() {
       const formData = new FormData();
       formData.append("file", file);
 
-      const res = await fetch("http://localhost:8000/upload", {
+      const res = await fetch(`${API}/upload`, {
         method: "POST",
         body: formData,
       });
@@ -33,9 +35,10 @@ function App() {
 
       setDocuments((prev) => [newDoc, ...prev]);
 
-      const ws = new WebSocket(`ws://localhost:8000/ws/${data.id}`);
+      const ws = new WebSocket(
+        `${API.replace("https", "wss")}/ws/${data.id}`
+      );
 
-      // ⏱️ Timeout → auto fail if stuck
       const timeout = setTimeout(() => {
         ws.close();
         setDocuments((prev) =>
@@ -54,7 +57,6 @@ function App() {
 
             if (d.status === "failed") return d;
 
-            // ✅ Random fail
             if (msg.progress >= 60 && Math.random() < 0.4) {
               clearTimeout(timeout);
               ws.close();
@@ -66,7 +68,6 @@ function App() {
               };
             }
 
-            // ✅ Completed
             if (msg.status === "completed") {
               clearTimeout(timeout);
               ws.close();
@@ -152,7 +153,7 @@ function App() {
   const finalizeDocument = async () => {
     if (!selectedDoc) return;
 
-    await fetch(`http://localhost:8000/finalize/${selectedDoc.id}`, {
+    await fetch(`${API}/finalize/${selectedDoc.id}`, {
       method: "POST",
     });
 
@@ -209,7 +210,6 @@ function App() {
 
   return (
     <div style={{ fontFamily: "Segoe UI", background: "#f4f6f8", minHeight: "100vh", padding: "30px" }}>
-
       {/* Upload */}
       <div style={{
         maxWidth: "500px",
@@ -219,7 +219,7 @@ function App() {
         borderRadius: "12px",
         boxShadow: "0 10px 25px rgba(0,0,0,0.1)"
       }}>
-        <h2 style={{ color: "#1f2937" }}>Document Processor</h2>
+        <h2>Document Processor</h2>
 
         <input type="file" multiple onChange={(e) => setFiles(Array.from(e.target.files))} />
 
