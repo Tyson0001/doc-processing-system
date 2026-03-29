@@ -1,8 +1,9 @@
 from celery import Celery
+import os
 
 celery_app = Celery(
     "worker",
-    broker="redis://redis:6379/0",
-    backend="redis://redis:6379/0",
+    broker=os.getenv("REDIS_URL"),
+    backend=os.getenv("REDIS_URL"),
     include=["app.workers.tasks"]
 )
