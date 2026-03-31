@@ -9,14 +9,21 @@ services:
     depends_on:
       - db
       - redis
+    environment:
+      - DATABASE_URL=postgresql://user:password@db:5432/documents_db
+      - REDIS_URL=redis://redis:6379/0
 
   worker:
     build: ./backend
     container_name: celery_worker
-    command: celery -A app.workers.celery_app worker --loglevel=info  # ✅ FIXED
+    command: celery -A app.workers.celery_app worker --loglevel=info
     depends_on:
       - backend
       - redis
+      - db
+    environment:
+      - DATABASE_URL=postgresql://user:password@db:5432/documents_db
+      - REDIS_URL=redis://redis:6379/0
 
   db:
     image: postgres:15
