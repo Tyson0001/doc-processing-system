@@ -4,8 +4,12 @@ import time
 
 import os
 
-DATABASE_URL = os.getenv("DATABASE_URL")
 
+
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql://user:password@localhost:5432/documents_db"
+)
 # Retry logic 
 for i in range(10):
     try:
